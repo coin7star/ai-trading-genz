@@ -5,9 +5,9 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 async function getBybitData() {
-  // FIX TIMEFRAME: Diubah ke interval 3 (M3) karena interval 2 tidak didukung resmi oleh Bybit
+  // FIX SYMBOL TRADFI: Menggunakan XAUUSD%2B (URL Encoded dari XAUUSD+) dan interval 3 (M3)
   const response = await fetch(
-    "https://api.bybit.com/v5/market/kline?category=linear&symbol=XAUUSD&interval=3&limit=25",
+    "https://api.bybit.com/v5/market/kline?category=linear&symbol=XAUUSD%2B&interval=3&limit=25",
     {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
@@ -23,7 +23,7 @@ async function getBybitData() {
   
   const data = await response.json();
   if (!data.result || !data.result.list || data.result.list.length === 0) {
-    throw new Error("Data kline dari Bybit kosong, Bro!");
+    throw new Error("Data kline dari Bybit kosong, Bro! Coba cek simbol atau kategorinya.");
   }
   
   return data.result.list;
@@ -65,7 +65,7 @@ function calculateMFI(candles: any[]) {
     const mfr = positiveFlow / negativeFlow;
     return Math.round(100 - (100 / (1 + mfr)));
   } catch (err) {
-    return 55; // Angka aman jikalau perhitungan crash
+    return 55;
   }
 }
 
@@ -82,7 +82,7 @@ export async function GET() {
     const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
 
     const prompt = `
-      Data market XAUUSD Bybit M3: MFI di level ${mfi}. 
+      Data market XAUUSD+ Bybit M3: MFI di level ${mfi}. 
       Analisa apakah layak entry buy/sell dengan rules: MFI < 30 (Oversold), MFI > 70 (Overbought).
       Beri saran santai gaya Gen Z. Maksimal 2 kalimat. Jangan kaku.
     `;
@@ -91,8 +91,8 @@ export async function GET() {
     const ai_advice = (await result.response).text();
 
     return NextResponse.json({
-      pair: "XAU/USD (TradFi)",
-      timeframe: "M3", // Tampilan di dashboard kita set mengikuti data asli Bybit
+      pair: "XAU/USD+ (TradFi)",
+      timeframe: "M3",
       mfi_level: mfi,
       fib_status: "Live Bybit API",
       ai_advice: ai_advice
@@ -101,7 +101,7 @@ export async function GET() {
   } catch (error: any) {
     console.error("Error log:", error.message);
     return NextResponse.json({ 
-      pair: "XAU/USD (TradFi)",
+      pair: "XAU/USD+ (TradFi)",
       timeframe: "M3",
       mfi_level: 0,
       fib_status: "API ERROR",
