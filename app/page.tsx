@@ -7,7 +7,7 @@ interface MarketData {
   timeframe: string;
   mfi_level: number;
   fib_status: string;
-  atr_value: number; // Data baru dari API
+  atr_value: number; // Data ATR udah masuk
   ai_advice: string;
 }
 
@@ -15,7 +15,7 @@ export default function Dashboard() {
   const [data, setData] = useState<MarketData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch data dari API route yang udah kita buat setiap 2 detik biar real-time
+  // Fetch data HANYA saat halaman dimuat atau direfresh manual
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -30,8 +30,7 @@ export default function Dashboard() {
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 2000);
-    return () => clearInterval(interval);
+    // setInterval sengaja dihapus biar AI anteng dan cuma ganti kalau di-refresh manual
   }, []);
 
   if (loading) {
@@ -56,7 +55,7 @@ export default function Dashboard() {
         <div className="flex items-center justify-between pb-6 border-b border-gray-800/60">
           <div>
             <h1 className="text-3xl font-extrabold tracking-tight text-gray-100 flex items-center gap-1">
-              {data?.pair || "XAUUSD"}<span className="text-gray-500 font-medium">+</span>
+              {data?.pair || "XAUUSD+"}
             </h1>
             <span className="mt-1.5 inline-block rounded-md bg-[#1b223c] px-2.5 py-1 text-xs font-semibold text-[#7285de]">
               TF: {data?.timeframe || "M2"}
@@ -79,11 +78,11 @@ export default function Dashboard() {
             </span>
           </div>
 
-          {/* Box ATR (TAMPILAN BARU!) */}
+          {/* Box ATR */}
           <div className="flex flex-col items-center justify-center rounded-2xl bg-[#131a30] p-4 text-center border border-emerald-500/10">
             <span className="text-xs font-bold tracking-wider text-gray-500">ATR</span>
             <span className="mt-2 text-2xl font-black text-[#00ffaa]">
-              {data?.atr_value !== undefined ? data.atr_value.toFixed(2) : "0.00"}
+              {data?.atr_value !== undefined ? Number(data.atr_value).toFixed(2) : "0.00"}
             </span>
           </div>
 
