@@ -4,93 +4,65 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
-// JALUR 1: POST (Khusus buat nerima data live dari MT5)
-export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    
-    // Panggil gudang KV
-    // @ts-ignore
-    const kv = process.env.MARKET_DATA || globalThis.MARKET_DATA;
-    if (!kv) throw new Error("Gudang MARKET_DATA belum disambungin, Bro!");
-
-    // Simpan data dari MT5 ke gudang dengan nama kunci 'latest_xau_m2'
-    await kv.put("latest_xau_m2", JSON.stringify({
-      pair: body.pair || "XAU/USD",
-      timeframe: body.timeframe || "M2",
-      mfi_level: body.mfi_level || 0,
-      fib_status: body.fib_status || "Waiting 1.618",
-      timestamp: Date.now()
-    }));
-
-    return NextResponse.json({ success: true, message: "Data sukses disetor ke Gudang KV!" });
-  } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  }
+async function getBybitData() {
+  // Ambil data kline XAUUSD M2 dari Bybit API
+  const response = await fetch("https://api.bybit.com/v5/market/kline?category=linear&symbol=XAUUSD&interval=2&limit=20");
+  const data = await response.json();
+  return data.result.list; // Return daftar candle
 }
 
-// JALUR 2: GET (Buat nampilin data di layar web lo + Analisa AI)
+// Fungsi hitung MFI sendiri (karena API cuma kasih data mentah)
+function calculateMFI(candles: any[]) {
+  let positiveFlow = 0;
+  let negativeFlow = 0;
+
+  for (let i = 0; i < 14; i++) {
+    const c = candles[i];
+    const high = parseFloat(c[2]);
+    const low = parseFloat(c[3]);
+    const close = parseFloat(c[4]);
+    const vol = parseFloat(c[5]);
+    const typicalPrice = (high + low + close) / 3;
+    const moneyFlow = typicalPrice * vol;
+
+    if (typicalPrice > (parseFloat(candles[i+1][2]) + parseFloat(candles[i+1][3]) + parseFloat(candles[i+1][4]))/3) {
+      positiveFlow += moneyFlow;
+    } else {
+      negativeFlow += moneyFlow;
+    }
+  }
+  const mfr = positiveFlow / negativeFlow;
+  return Math.round(100 - (100 / (1 + mfr)));
+}
+
 export async function GET() {
   try {
+    const candles = await getBybitData();
+    const mfi = calculateMFI(candles);
+
     // @ts-ignore
     const apiKey = process.env.AI_API_KEY || globalThis.AI_API_KEY;
-    if (!apiKey) throw new Error("API Key AI belum dipasang!");
-
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
 
-    // Panggil gudang KV
-    // @ts-ignore
-    const kv = process.env.MARKET_DATA || globalThis.MARKET_DATA;
-    
-    // Data default kalau MT5 belum ngirim apa-apa
-    let marketData = {
-      pair: "XAU/USD",
-      timeframe: "M2",
-      mfi_level: 0,
-      fib_status: "Menunggu Data MT5..."
-    };
-
-    // Ambil data terbaru dari gudang
-    if (kv) {
-      const rawData = await kv.get("latest_xau_m2");
-      if (rawData) {
-        marketData = JSON.parse(rawData);
-      }
-    }
-
     const prompt = `
-      Kamu adalah asisten trading santai bergaya anak muda Gen Z. 
-      Data market saat ini: Pair ${marketData.pair}, Timeframe ${marketData.timeframe}, MFI di level ${marketData.mfi_level}, status Fibonacci ${marketData.fib_status}. 
-      
-      Aturan trading user: 
-      1. Jangan entry sebelum harga menyentuh area 1.618.
-      2. MFI di atas 70 berarti Overbought (rawan turun), di bawah 30 berarti Oversold (rawan naik).
-      
-      Beri tahu user secara singkat apakah boleh entry atau harus sabar. 
-      Gunakan bahasa tongkrongan Jakarta (bro, gas, fomo, nyangkut, dsb). Maksimal 2 kalimat pendek. Jangan kaku.
+      Data market XAUUSD Bybit M2: MFI di level ${mfi}. 
+      Analisa apakah layak entry buy/sell dengan rules: MFI < 30 (Oversold), MFI > 70 (Overbought).
+      Beri saran santai gaya Gen Z. Maksimal 2 kalimat.
     `;
 
     const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const ai_advice = response.text();
+    const ai_advice = (await result.response).text();
 
     return NextResponse.json({
-      pair: marketData.pair,
-      timeframe: marketData.timeframe,
-      mfi_level: marketData.mfi_level,
-      fib_status: marketData.fib_status,
+      pair: "XAU/USD (TradFi)",
+      timeframe: "M2",
+      mfi_level: mfi,
+      fib_status: "Live Bybit API",
       ai_advice: ai_advice
     });
 
   } catch (error: any) {
-    console.error("Error log:", error);
-    return NextResponse.json({ 
-      pair: "XAU/USD",
-      timeframe: "M2",
-      mfi_level: 0,
-      fib_status: "ERROR",
-      ai_advice: `Konslet nih! Detail Error: ${error?.message || error || "Unknown Error"}` 
-    });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
