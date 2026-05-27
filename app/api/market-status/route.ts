@@ -1,18 +1,17 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// 1. Deklarasi wajib untuk Cloudflare Pages (Edge Runtime)
 export const runtime = 'edge';
-
-// 2. Paksa Next.js jalanin API ini secara dinamis (nggak di-cache)
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const apiKey = process.env.AI_API_KEY;
+    // Jalur alternatif: Cek process.env atau scope global Cloudflare (globalThis)
+    // @ts-ignore
+    const apiKey = process.env.AI_API_KEY || globalThis.AI_API_KEY;
     
     if (!apiKey) {
-      throw new Error("API Key Gemini belum dipasang Bro!");
+      throw new Error("Kunci rahasia AI_API_KEY kagak kebaca di runtime Cloudflare, Bro!");
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
@@ -49,14 +48,15 @@ export async function GET() {
       ai_advice: ai_advice
     });
 
-  } catch (error) {
-    console.error("Error dari Gemini:", error);
+  } catch (error: any) {
+    console.error("Error log:", error);
+    // Kita tembak error aslinya ke layar biar ketahuan biang keroknya!
     return NextResponse.json({ 
       pair: "XAU/USD",
       timeframe: "M2",
       mfi_level: 0,
       fib_status: "ERROR",
-      ai_advice: "Waduh Bro, otak AI gue lagi konslet bentar nih. Coba refresh lagi ya." 
+      ai_advice: `Konslet nih! Detail Error: ${error?.message || error || "Unknown Error"}` 
     });
   }
 }
