@@ -4,6 +4,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
+// Fungsi bantuan buat nyari gudang KV
 function getKVNamespace(req: Request): any {
   // @ts-ignore
   const context = req.context || req.cloudflare || {};
@@ -16,37 +17,38 @@ function getKVNamespace(req: Request): any {
   );
 }
 
-// JALUR 1: POST (Menerima setoran data dari MT5 Laptop lo)
+// JALUR 1: POST (Menerima setoran data dari MT5 Laptop)
 export async function POST(req: Request) {
   try {
     const kv = getKVNamespace(req);
     if (!kv) return NextResponse.json({ success: false, error: "KV Kosong" }, { status: 500 });
 
-    // Ambil data mentah dari MT5, mau bentuknya JSON atau text biasa tetep aman
     const textData = await req.text();
     let body: any = {};
     
     try {
-      body = JSON.parse(textData);
+      body = JSON.parse(textData); // Bongkar format JSON murni dari MT5 
     } catch (e) {
-      // Jika MT5 kirim format text/plain, kita paksa bongkar manual di sini
+      // Fallback cadangan kalau format MT5 berantakan
       const urlParams = new URLSearchParams(textData);
       body = Object.fromEntries(urlParams.entries());
     }
 
-    // Ambil nilai MFI level yang dikirim laptop lo
     const mfi = body.mfi_level !== undefined ? Number(body.mfi_level) : 0;
+    
+    // Variabel fib_status dari MT5 sekarang isinya data EMA (contoh: "EMA 9 > 20 (UPTREND)")
+    const status_trend = body.fib_status || "Menunggu Data EMA..."; 
 
-    // Paksa simpan langsung ke slot utama 'latest_xau_m2'
+    // Simpan ke Cloudflare KV
     await kv.put("latest_xau_m2", JSON.stringify({
-      pair: body.pair || "XAU/USD+ (TradFi)",
+      pair: body.pair || "XAUUSD+ (TradFi)",
       timeframe: body.timeframe || "M2",
       mfi_level: mfi,
-      fib_status: body.fib_status || "Menunggu 1.618",
+      fib_status: status_trend, 
       timestamp: Date.now()
     }));
 
-    return NextResponse.json({ success: true, message: `Mantap, data MFI ${mfi} kesimpan!` });
+    return NextResponse.json({ success: true, message: `Mantap, data EMA & MFI ${mfi} kesimpan!` });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
@@ -64,11 +66,12 @@ export async function GET(req: Request) {
 
     const kv = getKVNamespace(req);
     
+    // Data default
     let marketData = {
-      pair: "XAU/USD+ (TradFi)",
+      pair: "XAUUSD+",
       timeframe: "M2",
       mfi_level: 0,
-      fib_status: "Menunggu Data MT5..."
+      fib_status: "Menunggu Data EMA..."
     };
 
     if (kv) {
@@ -78,16 +81,17 @@ export async function GET(req: Request) {
       }
     }
 
+    // OTAK BARU AI: Fokus ke EMA 9 & 20, buang jauh-jauh Fibo!
     const prompt = `
       Kamu adalah asisten trading santai bergaya anak muda Gen Z. 
-      Data market saat ini: Pair ${marketData.pair}, Timeframe ${marketData.timeframe}, MFI di level ${marketData.mfi_level}, status Fibonacci ${marketData.fib_status}. 
+      Data market saat ini: Pair ${marketData.pair}, Timeframe ${marketData.timeframe}, MFI di level ${marketData.mfi_level}, status trend: ${marketData.fib_status}. 
       
       Aturan trading user: 
-      1. Jangan entry sebelum harga menyentuh area 1.618.
-      2. MFI di bawah 30 adalah Oversold (siap buy), di atas 70 adalah Overbought (siap sell).
+      1. Saranin ENTRY BUY JIKA trend tertulis UPTREND dan MFI dalam posisi Oversold (di bawah 30).
+      2. Saranin ENTRY SELL JIKA trend tertulis DOWNTREND dan MFI dalam posisi Overbought (di atas 70).
+      3. Selain dari 2 kondisi di atas, suruh user "Wait and See" dan tahan jempol biar gak fomo.
       
-      Beri tahu user secara singkat apakah boleh entry atau harus sabar berdasarkan level MFI asli yang tertulis. 
-      Gunakan bahasa tongkrongan Jakarta (bro, gas, fomo, nyangkut, dsb). Maksimal 2 kalimat pendek. Jangan kaku.
+      Beri saran singkat (maksimal 2 kalimat) pakai bahasa tongkrongan Jakarta (bro, gas, fomo, nyangkut, dsb). Jangan pernah sebut kata Fibo atau 1.618 lagi, karena sekarang kita main pake garis EMA!
     `;
 
     const result = await model.generateContent(prompt);
@@ -103,11 +107,11 @@ export async function GET(req: Request) {
 
   } catch (error: any) {
     return NextResponse.json({ 
-      pair: "XAU/USD+ (TradFi)",
+      pair: "XAUUSD+",
       timeframe: "M2",
       mfi_level: 0,
       fib_status: "ERROR",
-      ai_advice: `Konslet: ${error.message}` 
+      ai_advice: `Konslet nih bro! Error: ${error.message}` 
     });
   }
 }
