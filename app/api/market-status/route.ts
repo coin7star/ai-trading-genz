@@ -19,8 +19,8 @@ export async function GET() {
 
     const genAI = new GoogleGenerativeAI(apiKey);
     
-    // FIX FINAL: Menggunakan model gemini-1.0-pro yang paling stabil dan anti-404
-    const model = genAI.getGenerativeModel({ model: "gemini-1.0-pro" });
+    // FIX SUPER FINAL: Mesin baru + Model terbaru (Pasti Tembus!)
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const marketData = {
       pair: "XAU/USD",
