@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+// 1. Deklarasi wajib untuk Cloudflare Pages (Edge Runtime)
 export const runtime = 'edge';
+
+// 2. Paksa Next.js jalanin API ini secara dinamis (nggak di-cache)
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
@@ -15,7 +18,9 @@ export async function GET() {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    
+    // FIX 2026: Menggunakan model gemini-1.5-flash yang aktif dan didukung penuh
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const marketData = {
       pair: "XAU/USD",
@@ -50,7 +55,7 @@ export async function GET() {
 
   } catch (error: any) {
     console.error("Error log:", error);
-    // Kita tembak error aslinya ke layar biar ketahuan biang keroknya!
+    // Menampilkan detail error di layar jika terjadi kendala pada API
     return NextResponse.json({ 
       pair: "XAU/USD",
       timeframe: "M2",
