@@ -4,16 +4,36 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
+// Fungsi bantuan buat nyari gudang KV di Cloudflare Pages (Edge / Worker)
+function getKVNamespace(req: Request): any {
+  // @ts-ignore
+  const context = req.context || req.cloudflare || {};
+  
+  return (
+    context.env?.MARKET_DATA || 
+    // @ts-ignore
+    process.env.MARKET_DATA || 
+    // @ts-ignore
+    globalThis.MARKET_DATA ||
+    // @ts-ignore
+    globalThis.__STATIC_CONTENT
+  );
+}
+
 // JALUR 1: POST (Menerima setoran data dari MT5 Laptop lo)
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+    const kv = getKVNamespace(req);
     
-    // @ts-ignore
-    const kv = process.env.MARKET_DATA || globalThis.MARKET_DATA;
-    if (!kv) throw new Error("Gudang KV MARKET_DATA belum tersambung!");
+    if (!kv) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "Gudang KV MARKET_DATA tidak terdeteksi di runtime Cloudflare!" 
+      }, { status: 500 });
+    }
 
-    // Kunci disamakan: Mau pair-nya XAUUSD+ atau apapun, tetep disimpan di slot 'latest_xau_m2'
+    // Paksa simpan data ke slot 'latest_xau_m2'
     await kv.put("latest_xau_m2", JSON.stringify({
       pair: body.pair || "XAU/USD+",
       timeframe: body.timeframe || "M2",
@@ -22,26 +42,25 @@ export async function POST(req: Request) {
       timestamp: Date.now()
     }));
 
-    return NextResponse.json({ success: true, message: "Data sukses disetor ke Gudang KV!" });
+    return NextResponse.json({ success: true, message: "Data sukses disimpan di KV!" });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
 // JALUR 2: GET (Nampilin data ke layar HP lo)
-export async function GET() {
+export async function GET(req: Request) {
   try {
     // @ts-ignore
     const apiKey = process.env.AI_API_KEY || globalThis.AI_API_KEY;
     if (!apiKey) throw new Error("API Key AI belum dipasang!");
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    // @ts-ignore
-    const kv = process.env.MARKET_DATA || globalThis.MARKET_DATA;
+    const kv = getKVNamespace(req);
     
-    // Data default kalau gudang kosong
+    // Data default jika gagal atau kosong
     let marketData = {
       pair: "XAU/USD+ (TradFi)",
       timeframe: "M2",
@@ -54,6 +73,14 @@ export async function GET() {
       if (rawData) {
         marketData = JSON.parse(rawData);
       }
+    } else {
+      return NextResponse.json({
+        pair: "CONFIG_ERROR",
+        timeframe: "M2",
+        mfi_level: 0,
+        fib_status: "KV_NOT_FOUND",
+        ai_advice: "Binding KV terdeteksi kosong, bro! Cek lagi tab Settings Cloudflare lo."
+      });
     }
 
     const prompt = `
@@ -89,6 +116,3 @@ export async function GET() {
     });
   }
 }
-
-
-// pancingan deploy baru setelah binding KV
