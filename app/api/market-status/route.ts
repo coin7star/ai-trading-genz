@@ -89,3 +89,6 @@ export async function GET() {
     });
   }
 }
+
+
+// pancingan deploy baru setelah binding KV
