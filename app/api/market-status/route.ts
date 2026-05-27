@@ -7,52 +7,107 @@ export const dynamic = 'force-dynamic';
 function getKVNamespace(req: Request): any {
   // @ts-ignore
   const context = req.context || req.cloudflare || {};
-  return context.env?.MARKET_DATA || process.env.MARKET_DATA || globalThis.MARKET_DATA;
+  return (
+    context.env?.MARKET_DATA || 
+    // @ts-ignore
+    process.env.MARKET_DATA || 
+    // @ts-ignore
+    globalThis.MARKET_DATA
+  );
 }
 
+// JALUR 1: POST (Menerima setoran data dari MT5 Laptop lo)
 export async function POST(req: Request) {
   try {
     const kv = getKVNamespace(req);
-    const textData = await req.text();
-    
-    // Bongkar paksa data dari laptop lo
-    const params = new URLSearchParams(textData);
-    const mfi = params.get('mfi_level') || "0";
-    const pair = params.get('pair') || "XAU/USD+ (TradFi)";
-    const fib = params.get('fib_status') || "Menunggu 1.618";
+    if (!kv) return NextResponse.json({ success: false, error: "KV Kosong" }, { status: 500 });
 
-    // Simpan ke KV
+    // Ambil data mentah dari MT5, mau bentuknya JSON atau text biasa tetep aman
+    const textData = await req.text();
+    let body: any = {};
+    
+    try {
+      body = JSON.parse(textData);
+    } catch (e) {
+      // Jika MT5 kirim format text/plain, kita paksa bongkar manual di sini
+      const urlParams = new URLSearchParams(textData);
+      body = Object.fromEntries(urlParams.entries());
+    }
+
+    // Ambil nilai MFI level yang dikirim laptop lo
+    const mfi = body.mfi_level !== undefined ? Number(body.mfi_level) : 0;
+
+    // Paksa simpan langsung ke slot utama 'latest_xau_m2'
     await kv.put("latest_xau_m2", JSON.stringify({
-      pair: pair,
-      mfi_level: Number(mfi),
-      fib_status: fib,
+      pair: body.pair || "XAU/USD+ (TradFi)",
+      timeframe: body.timeframe || "M2",
+      mfi_level: mfi,
+      fib_status: body.fib_status || "Menunggu 1.618",
       timestamp: Date.now()
     }));
 
-    return NextResponse.json({ success: true, received_mfi: mfi });
-  } catch (e: any) {
-    return NextResponse.json({ success: false, error: e.message });
+    return NextResponse.json({ success: true, message: `Mantap, data MFI ${mfi} kesimpan!` });
+  } catch (error: any) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
+// JALUR 2: GET (Nampilin data ke layar HP lo)
 export async function GET(req: Request) {
   try {
-    const kv = getKVNamespace(req);
-    const rawData = await kv.get("latest_xau_m2");
-    const data = rawData ? JSON.parse(rawData) : { mfi_level: 0, pair: "XAU/USD+", fib_status: "No Data" };
-
     // @ts-ignore
-    const genAI = new GoogleGenerativeAI(process.env.AI_API_KEY || globalThis.AI_API_KEY);
+    const apiKey = process.env.AI_API_KEY || globalThis.AI_API_KEY;
+    if (!apiKey) throw new Error("API Key kosong");
+
+    const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-    const prompt = `Data market: MFI ${data.mfi_level}. Beri saran singkat gaya anak muda Jakarta.`;
+    const kv = getKVNamespace(req);
+    
+    let marketData = {
+      pair: "XAU/USD+ (TradFi)",
+      timeframe: "M2",
+      mfi_level: 0,
+      fib_status: "Menunggu Data MT5..."
+    };
+
+    if (kv) {
+      const rawData = await kv.get("latest_xau_m2");
+      if (rawData) {
+        marketData = JSON.parse(rawData);
+      }
+    }
+
+    const prompt = `
+      Kamu adalah asisten trading santai bergaya anak muda Gen Z. 
+      Data market saat ini: Pair ${marketData.pair}, Timeframe ${marketData.timeframe}, MFI di level ${marketData.mfi_level}, status Fibonacci ${marketData.fib_status}. 
+      
+      Aturan trading user: 
+      1. Jangan entry sebelum harga menyentuh area 1.618.
+      2. MFI di bawah 30 adalah Oversold (siap buy), di atas 70 adalah Overbought (siap sell).
+      
+      Beri tahu user secara singkat apakah boleh entry atau harus sabar berdasarkan level MFI asli yang tertulis. 
+      Gunakan bahasa tongkrongan Jakarta (bro, gas, fomo, nyangkut, dsb). Maksimal 2 kalimat pendek. Jangan kaku.
+    `;
+
     const result = await model.generateContent(prompt);
+    const ai_advice = (await result.response).text();
 
     return NextResponse.json({
-      ...data,
-      ai_advice: result.response.text()
+      pair: marketData.pair,
+      timeframe: marketData.timeframe,
+      mfi_level: marketData.mfi_level,
+      fib_status: marketData.fib_status,
+      ai_advice: ai_advice
     });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message });
+
+  } catch (error: any) {
+    return NextResponse.json({ 
+      pair: "XAU/USD+ (TradFi)",
+      timeframe: "M2",
+      mfi_level: 0,
+      fib_status: "ERROR",
+      ai_advice: `Konslet: ${error.message}` 
+    });
   }
 }
