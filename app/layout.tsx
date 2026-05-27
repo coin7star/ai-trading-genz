@@ -1,9 +1,9 @@
 import type { Metadata } from 'next'
-import './globals.css' // Next.js otomatis nge-handle ini jika pakai Tailwind
+import './globals.css'
 
 export const metadata: Metadata = {
   title: 'AI Trading Assistant',
-  description: 'Asisten trading anti-fomo buat Gen Z',
+  description: 'Asisten trading anti-fomo',
 }
 
 export default function RootLayout({
