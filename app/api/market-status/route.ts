@@ -4,21 +4,20 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
-// JALUR 1: POST (Nerima setoran data dari script MT5 di laptop/VPS lo)
+// JALUR 1: POST (Menerima setoran data dari MT5 Laptop lo)
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     
-    // Panggil gudang KV Cloudflare yang udah di-binding kemarin
     // @ts-ignore
     const kv = process.env.MARKET_DATA || globalThis.MARKET_DATA;
     if (!kv) throw new Error("Gudang KV MARKET_DATA belum tersambung!");
 
-    // Simpan data dari MT5 ke gudang dengan key 'latest_xau_m2'
+    // Kunci disamakan: Mau pair-nya XAUUSD+ atau apapun, tetep disimpan di slot 'latest_xau_m2'
     await kv.put("latest_xau_m2", JSON.stringify({
-      pair: body.pair || "XAU/USD",
+      pair: body.pair || "XAU/USD+",
       timeframe: body.timeframe || "M2",
-      mfi_level: body.mfi_level || 0,
+      mfi_level: Number(body.mfi_level) || 0,
       fib_status: body.fib_status || "Waiting 1.618",
       timestamp: Date.now()
     }));
@@ -29,23 +28,22 @@ export async function POST(req: Request) {
   }
 }
 
-// JALUR 2: GET (Nampilin data ke layar HP pas lo buka web + panggil Gemini AI)
+// JALUR 2: GET (Nampilin data ke layar HP lo)
 export async function GET() {
   try {
     // @ts-ignore
     const apiKey = process.env.AI_API_KEY || globalThis.AI_API_KEY;
-    if (!apiKey) throw new Error("API Key AI belum dipasang di Cloudflare!");
+    if (!apiKey) throw new Error("API Key AI belum dipasang!");
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
 
-    // Panggil gudang KV
     // @ts-ignore
     const kv = process.env.MARKET_DATA || globalThis.MARKET_DATA;
     
-    // Set data template awal sebelum MT5 ngirim setoran pertama
+    // Data default kalau gudang kosong
     let marketData = {
-      pair: "XAU/USD",
+      pair: "XAU/USD+ (TradFi)",
       timeframe: "M2",
       mfi_level: 0,
       fib_status: "Menunggu Data MT5..."
@@ -66,7 +64,7 @@ export async function GET() {
       1. Jangan entry sebelum harga menyentuh area 1.618.
       2. MFI di bawah 30 adalah Oversold (siap buy), di atas 70 adalah Overbought (siap sell).
       
-      Beri tahu user secara singkat apakah boleh entry atau harus sabar. 
+      Beri tahu user secara singkat apakah boleh entry atau harus sabar berdasarkan level MFI asli yang tertulis. 
       Gunakan bahasa tongkrongan Jakarta (bro, gas, fomo, nyangkut, dsb). Maksimal 2 kalimat pendek. Jangan kaku.
     `;
 
@@ -83,7 +81,7 @@ export async function GET() {
 
   } catch (error: any) {
     return NextResponse.json({ 
-      pair: "XAU/USD",
+      pair: "XAU/USD+ (TradFi)",
       timeframe: "M2",
       mfi_level: 0,
       fib_status: "ERROR",
