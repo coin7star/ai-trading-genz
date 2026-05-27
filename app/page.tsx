@@ -1,97 +1,125 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 
 interface MarketData {
   pair: string;
   timeframe: string;
   mfi_level: number;
   fib_status: string;
+  atr_value: number; // Data baru dari API
   ai_advice: string;
 }
 
-export default function Home() {
-  const [marketData, setMarketData] = useState<MarketData | null>(null);
+export default function Dashboard() {
+  const [data, setData] = useState<MarketData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Fetch data dari API route yang udah kita buat setiap 2 detik biar real-time
   useEffect(() => {
-    fetch('/api/market-status')
-      .then((res) => res.json())
-      .then((data) => {
-        setMarketData(data);
+    const fetchData = async () => {
+      try {
+        const res = await fetch("/api/market-status");
+        const json = await res.json();
+        setData(json);
+      } catch (err) {
+        console.error("Gagal ambil data trading:", err);
+      } finally {
         setLoading(false);
-      })
-      .catch((err) => console.error(err));
+      }
+    };
+
+    fetchData();
+    const interval = setInterval(fetchData, 2000);
+    return () => clearInterval(interval);
   }, []);
 
-  return (
-    <main className="flex flex-col items-center justify-center min-h-screen p-4 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-gray-800 via-gray-950 to-black font-sans">
-      
-      {/* Efek Glow di belakang card */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-indigo-500/20 blur-[100px] rounded-full pointer-events-none"></div>
-
-      <div className="relative max-w-sm w-full bg-gray-900/40 backdrop-blur-xl border border-gray-700/50 rounded-3xl shadow-2xl overflow-hidden z-10">
-        
-        {/* Header */}
-        <div className="p-6 border-b border-gray-700/50 flex justify-between items-center bg-gray-800/20">
-          <div>
-            <h1 className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
-              {marketData?.pair || "Menganalisa..."}
-            </h1>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="bg-indigo-500/20 text-indigo-300 text-xs px-2 py-0.5 rounded-md font-medium border border-indigo-500/30">
-                TF: {marketData?.timeframe || "-"}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center justify-center h-10 w-10 bg-gray-950/50 rounded-full border border-gray-700/50">
-            <div className="h-3 w-3 bg-emerald-400 rounded-full animate-[pulse_2s_ease-in-out_infinite] shadow-[0_0_10px_rgba(52,211,153,0.8)]"></div>
-          </div>
-        </div>
-
-        {/* Indikator */}
-        <div className="p-6 grid grid-cols-2 gap-4">
-          <div className="bg-gray-950/50 p-4 rounded-2xl border border-gray-800/50 flex flex-col items-center justify-center">
-            <p className="text-xs text-gray-500 font-bold tracking-wider mb-2">MFI</p>
-            <p className="text-2xl font-mono text-cyan-400 font-bold drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]">
-              {marketData?.mfi_level || "0"}
-            </p>
-          </div>
-          <div className="bg-gray-950/50 p-4 rounded-2xl border border-gray-800/50 flex flex-col items-center justify-center text-center">
-            <p className="text-xs text-gray-500 font-bold tracking-wider mb-2">RULES</p>
-            <p className="text-sm font-bold text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]">
-              {marketData?.fib_status || "-"}
-            </p>
-          </div>
-        </div>
-
-        {/* Chat AI */}
-        <div className="px-6 pb-6">
-          <div className="bg-gradient-to-br from-indigo-900/30 to-purple-900/30 border border-indigo-500/30 p-5 rounded-2xl relative shadow-inner">
-            <div className="absolute -top-3 left-5 bg-indigo-500 text-white px-3 py-0.5 text-[10px] font-black tracking-widest uppercase rounded-full shadow-lg">
-              AI Asisten
-            </div>
-            <p className="text-gray-300 text-sm leading-relaxed mt-2">
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"></span>
-                  <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce delay-75"></span>
-                  <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce delay-150"></span>
-                </span>
-              ) : (
-                marketData?.ai_advice
-              )}
-            </p>
-          </div>
-        </div>
-
-        {/* Tombol Eksekusi */}
-        <div className="p-6 pt-0">
-          <button className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-black py-4 rounded-2xl transition-all active:scale-95 shadow-[0_0_20px_rgba(16,185,129,0.4)]">
-            GAS ENTRY! 🚀
-          </button>
-        </div>
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#0d111c] text-white">
+        <p className="animate-pulse text-sm font-semibold tracking-wider">LOADING DATA SULTAN...</p>
       </div>
-    </main>
+    );
+  }
+
+  // Cek apakah sinyal siap entry berdasarkan rule lo
+  const isBuy = data?.fib_status.includes("UPTREND") && (data?.mfi_level ?? 0) <= 30;
+  const isSell = data?.fib_status.includes("DOWNTREND") && (data?.mfi_level ?? 0) >= 70;
+  const readyToGas = isBuy || isSell;
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#07090e] p-4 text-white font-sans">
+      {/* Container Utama */}
+      <div className="w-full max-w-md rounded-3xl bg-[#0f1322] p-6 shadow-2xl border border-gray-800/40">
+        
+        {/* Header: Pair & Status Dot */}
+        <div className="flex items-center justify-between pb-6 border-b border-gray-800/60">
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-gray-100 flex items-center gap-1">
+              {data?.pair || "XAUUSD"}<span className="text-gray-500 font-medium">+</span>
+            </h1>
+            <span className="mt-1.5 inline-block rounded-md bg-[#1b223c] px-2.5 py-1 text-xs font-semibold text-[#7285de]">
+              TF: {data?.timeframe || "M2"}
+            </span>
+          </div>
+          {/* Status Dot Pulsing Hijau */}
+          <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-[#162325]">
+            <span className="absolute inline-flex h-3 w-3 animate-ping rounded-full bg-[#00ffaa] opacity-75"></span>
+            <span className="relative inline-flex h-3 w-3 rounded-full bg-[#00ffaa]"></span>
+          </div>
+        </div>
+
+        {/* Grid Tiga Kolom: MFI, ATR, RULES */}
+        <div className="mt-6 grid grid-cols-3 gap-3">
+          {/* Box MFI */}
+          <div className="flex flex-col items-center justify-center rounded-2xl bg-[#131a30] p-4 text-center">
+            <span className="text-xs font-bold tracking-wider text-gray-500">MFI</span>
+            <span className="mt-2 text-2xl font-black text-[#00b0ff]">
+              {data?.mfi_level ?? 0}
+            </span>
+          </div>
+
+          {/* Box ATR (TAMPILAN BARU!) */}
+          <div className="flex flex-col items-center justify-center rounded-2xl bg-[#131a30] p-4 text-center border border-emerald-500/10">
+            <span className="text-xs font-bold tracking-wider text-gray-500">ATR</span>
+            <span className="mt-2 text-2xl font-black text-[#00ffaa]">
+              {data?.atr_value !== undefined ? data.atr_value.toFixed(2) : "0.00"}
+            </span>
+          </div>
+
+          {/* Box RULES */}
+          <div className="flex flex-col items-center justify-center rounded-2xl bg-[#131a30] p-4 text-center">
+            <span className="text-xs font-bold tracking-wider text-gray-500">RULES</span>
+            <span className="mt-2 text-xs font-extrabold text-[#ffb300] leading-tight">
+              {data?.fib_status.includes("UPTREND") ? "EMA 9 > 20 (UPTREND)" : 
+               data?.fib_status.includes("DOWNTREND") ? "EMA 9 < 20 (DOWNTREND)" : "KONSOLIDASI"}
+            </span>
+          </div>
+        </div>
+
+        {/* Bubble AI Asisten */}
+        <div className="relative mt-6 rounded-2xl bg-[#181931] p-5 border border-[#3c3066]/30">
+          <span className="absolute -top-3 left-4 rounded-lg bg-[#5352f3] px-3 py-0.5 text-[10px] font-black uppercase tracking-widest text-white shadow-md">
+            AI ASISTEN
+          </span>
+          <p className="text-sm leading-relaxed text-gray-300 font-medium">
+            {data?.ai_advice || "Lagi mantau pergerakan market dulu, tunggu sinyal mantap ya bro..."}
+          </p>
+        </div>
+
+        {/* Button Action Dynamic */}
+        <button
+          disabled={!readyToGas}
+          className={`mt-6 w-full rounded-2xl py-4 text-center text-base font-black uppercase tracking-wider transition-all duration-300 ${
+            readyToGas
+              ? "bg-[#00ffaa] text-[#07090e] shadow-[0_0_20px_rgba(0,255,170,0.4)] hover:scale-[1.02]"
+              : "bg-gradient-to-r from-teal-500 to-emerald-500 text-[#07090e] opacity-90 cursor-not-allowed"
+          }`}
+        >
+          {isBuy ? "GAS ENTRY BUY! 🚀" : isSell ? "GAS ENTRY SELL! 🔥" : "STAND BY ENTRY! ⏱️"}
+        </button>
+
+      </div>
+    </div>
   );
 }
