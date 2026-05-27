@@ -1,33 +1,63 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// 1. Deklarasi wajib untuk Cloudflare Pages (Edge Runtime)
 export const runtime = 'edge';
-
-// 2. Paksa Next.js jalanin API ini secara dinamis (nggak di-cache)
 export const dynamic = 'force-dynamic';
 
+// JALUR 1: POST (Khusus buat nerima data live dari MT5)
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    
+    // Panggil gudang KV
+    // @ts-ignore
+    const kv = process.env.MARKET_DATA || globalThis.MARKET_DATA;
+    if (!kv) throw new Error("Gudang MARKET_DATA belum disambungin, Bro!");
+
+    // Simpan data dari MT5 ke gudang dengan nama kunci 'latest_xau_m2'
+    await kv.put("latest_xau_m2", JSON.stringify({
+      pair: body.pair || "XAU/USD",
+      timeframe: body.timeframe || "M2",
+      mfi_level: body.mfi_level || 0,
+      fib_status: body.fib_status || "Waiting 1.618",
+      timestamp: Date.now()
+    }));
+
+    return NextResponse.json({ success: true, message: "Data sukses disetor ke Gudang KV!" });
+  } catch (error: any) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+}
+
+// JALUR 2: GET (Buat nampilin data di layar web lo + Analisa AI)
 export async function GET() {
   try {
-    // Jalur alternatif: Cek process.env atau scope global Cloudflare (globalThis)
     // @ts-ignore
     const apiKey = process.env.AI_API_KEY || globalThis.AI_API_KEY;
-    
-    if (!apiKey) {
-      throw new Error("Kunci rahasia AI_API_KEY kagak kebaca di runtime Cloudflare, Bro!");
-    }
+    if (!apiKey) throw new Error("API Key AI belum dipasang!");
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    
-    // FIX SUPER DUPER FINAL: Pakai model 2026 terbaru yang aktif!
     const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
 
-    const marketData = {
+    // Panggil gudang KV
+    // @ts-ignore
+    const kv = process.env.MARKET_DATA || globalThis.MARKET_DATA;
+    
+    // Data default kalau MT5 belum ngirim apa-apa
+    let marketData = {
       pair: "XAU/USD",
       timeframe: "M2",
-      mfi_level: Math.floor(Math.random() * (80 - 20 + 1)) + 20, 
-      fib_status: "Waiting 1.618"
+      mfi_level: 0,
+      fib_status: "Menunggu Data MT5..."
     };
+
+    // Ambil data terbaru dari gudang
+    if (kv) {
+      const rawData = await kv.get("latest_xau_m2");
+      if (rawData) {
+        marketData = JSON.parse(rawData);
+      }
+    }
 
     const prompt = `
       Kamu adalah asisten trading santai bergaya anak muda Gen Z. 
@@ -55,7 +85,6 @@ export async function GET() {
 
   } catch (error: any) {
     console.error("Error log:", error);
-    // Menampilkan detail error di layar jika terjadi kendala pada API
     return NextResponse.json({ 
       pair: "XAU/USD",
       timeframe: "M2",
