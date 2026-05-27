@@ -1,20 +1,12 @@
 import { NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
-// Fungsi bantuan buat nyari gudang KV
 function getKVNamespace(req: Request): any {
   // @ts-ignore
   const context = req.context || req.cloudflare || {};
-  return (
-    context.env?.MARKET_DATA || 
-    // @ts-ignore
-    process.env.MARKET_DATA || 
-    // @ts-ignore
-    globalThis.MARKET_DATA
-  );
+  return context.env?.MARKET_DATA || process.env.MARKET_DATA || globalThis.MARKET_DATA;
 }
 
 // JALUR 1: POST (Menerima setoran data dari MT5 Laptop)
@@ -27,19 +19,15 @@ export async function POST(req: Request) {
     let body: any = {};
     
     try {
-      body = JSON.parse(textData); // Bongkar format JSON murni dari MT5 
+      body = JSON.parse(textData);
     } catch (e) {
-      // Fallback cadangan kalau format MT5 berantakan
       const urlParams = new URLSearchParams(textData);
       body = Object.fromEntries(urlParams.entries());
     }
 
     const mfi = body.mfi_level !== undefined ? Number(body.mfi_level) : 0;
-    
-    // Variabel fib_status dari MT5 sekarang isinya data EMA (contoh: "EMA 9 > 20 (UPTREND)")
     const status_trend = body.fib_status || "Menunggu Data EMA..."; 
 
-    // Simpan ke Cloudflare KV
     await kv.put("latest_xau_m2", JSON.stringify({
       pair: body.pair || "XAUUSD+ (TradFi)",
       timeframe: body.timeframe || "M2",
@@ -48,25 +36,21 @@ export async function POST(req: Request) {
       timestamp: Date.now()
     }));
 
-    return NextResponse.json({ success: true, message: `Mantap, data EMA & MFI ${mfi} kesimpan!` });
+    return NextResponse.json({ success: true, message: "Data sukses disetor ke KV!" });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
-// JALUR 2: GET (Nampilin data ke layar HP lo)
+// JALUR 2: GET (Nampilin data ke layar HP lewat mesin GROQ API)
 export async function GET(req: Request) {
   try {
     // @ts-ignore
-    const apiKey = process.env.AI_API_KEY || globalThis.AI_API_KEY;
-    if (!apiKey) throw new Error("API Key kosong");
-
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const groqKey = process.env.GROQ_API_KEY || globalThis.GROQ_API_KEY;
+    if (!groqKey) throw new Error("API Key GROQ belum dipasang di Cloudflare!");
 
     const kv = getKVNamespace(req);
     
-    // Data default
     let marketData = {
       pair: "XAUUSD+",
       timeframe: "M2",
@@ -81,21 +65,43 @@ export async function GET(req: Request) {
       }
     }
 
-    // OTAK BARU AI: Fokus ke EMA 9 & 20, buang jauh-jauh Fibo!
-    const prompt = `
-      Kamu adalah asisten trading santai bergaya anak muda Gen Z. 
-      Data market saat ini: Pair ${marketData.pair}, Timeframe ${marketData.timeframe}, MFI di level ${marketData.mfi_level}, status trend: ${marketData.fib_status}. 
+    // Siapkan instruksi buat Llama di Groq
+    const promptText = `
+      Kamu adalah asisten trading santai bergaya anak muda Gen Z Jakarta. 
+      Data market saat ini: Pair ${marketData.pair}, Timeframe M2, MFI di level ${marketData.mfi_level}, status trend: ${marketData.fib_status}. 
       
       Aturan trading user: 
       1. Saranin ENTRY BUY JIKA trend tertulis UPTREND dan MFI dalam posisi Oversold (di bawah 30).
       2. Saranin ENTRY SELL JIKA trend tertulis DOWNTREND dan MFI dalam posisi Overbought (di atas 70).
       3. Selain dari 2 kondisi di atas, suruh user "Wait and See" dan tahan jempol biar gak fomo.
       
-      Beri saran singkat (maksimal 2 kalimat) pakai bahasa tongkrongan Jakarta (bro, gas, fomo, nyangkut, dsb). Jangan pernah sebut kata Fibo atau 1.618 lagi, karena sekarang kita main pake garis EMA!
+      Beri saran singkat (maksimal 2 kalimat pendek) pake bahasa tongkrongan (bro, gas, fomo, nyangkut, dsb). Jangan kaku.
     `;
 
-    const result = await model.generateContent(prompt);
-    const ai_advice = (await result.response).text();
+    // Tembak langsung ke API resmi Groq via native fetch (Format OpenAI)
+    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${groqKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant", // Model gratisan Groq yang super kilat
+        messages: [
+          { role: "user", content: promptText }
+        ],
+        temperature: 0.7,
+        max_tokens: 100
+      })
+    });
+
+    if (!groqResponse.ok) {
+      const errText = await groqResponse.text();
+      throw new Error(`Groq API Error: ${errText}`);
+    }
+
+    const groqJson = await groqResponse.json();
+    const ai_advice = groqJson.choices[0]?.message?.content || "Gagal dapet nasehat dari Groq, Bro.";
 
     return NextResponse.json({
       pair: marketData.pair,
@@ -111,7 +117,7 @@ export async function GET(req: Request) {
       timeframe: "M2",
       mfi_level: 0,
       fib_status: "ERROR",
-      ai_advice: `Konslet nih bro! Error: ${error.message}` 
+      ai_advice: `Groq Konslet: ${error.message}` 
     });
   }
 }
