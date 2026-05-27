@@ -19,8 +19,8 @@ export async function GET() {
 
     const genAI = new GoogleGenerativeAI(apiKey);
     
-    // FIX 2026: Menggunakan model gemini-1.5-flash yang aktif dan didukung penuh
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // FIX FINAL: Menggunakan model gemini-1.0-pro yang paling stabil dan anti-404
+    const model = genAI.getGenerativeModel({ model: "gemini-1.0-pro" });
 
     const marketData = {
       pair: "XAU/USD",
