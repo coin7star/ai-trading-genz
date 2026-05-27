@@ -4,45 +4,49 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
-// Fungsi bantuan buat nyari gudang KV di Cloudflare Pages (Edge / Worker)
 function getKVNamespace(req: Request): any {
   // @ts-ignore
   const context = req.context || req.cloudflare || {};
-  
   return (
     context.env?.MARKET_DATA || 
     // @ts-ignore
     process.env.MARKET_DATA || 
     // @ts-ignore
-    globalThis.MARKET_DATA ||
-    // @ts-ignore
-    globalThis.__STATIC_CONTENT
+    globalThis.MARKET_DATA
   );
 }
 
 // JALUR 1: POST (Menerima setoran data dari MT5 Laptop lo)
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
     const kv = getKVNamespace(req);
+    if (!kv) return NextResponse.json({ success: false, error: "KV Kosong" }, { status: 500 });
+
+    // Ambil data mentah dari MT5, mau bentuknya JSON atau text biasa tetep aman
+    const textData = await req.text();
+    let body: any = {};
     
-    if (!kv) {
-      return NextResponse.json({ 
-        success: false, 
-        error: "Gudang KV MARKET_DATA tidak terdeteksi di runtime Cloudflare!" 
-      }, { status: 500 });
+    try {
+      body = JSON.parse(textData);
+    } catch (e) {
+      // Jika MT5 kirim format text/plain, kita paksa bongkar manual di sini
+      const urlParams = new URLSearchParams(textData);
+      body = Object.fromEntries(urlParams.entries());
     }
 
-    // Paksa simpan data ke slot 'latest_xau_m2'
+    // Ambil nilai MFI level yang dikirim laptop lo
+    const mfi = body.mfi_level !== undefined ? Number(body.mfi_level) : 0;
+
+    // Paksa simpan langsung ke slot utama 'latest_xau_m2'
     await kv.put("latest_xau_m2", JSON.stringify({
-      pair: body.pair || "XAU/USD+",
+      pair: body.pair || "XAU/USD+ (TradFi)",
       timeframe: body.timeframe || "M2",
-      mfi_level: Number(body.mfi_level) || 0,
-      fib_status: body.fib_status || "Waiting 1.618",
+      mfi_level: mfi,
+      fib_status: body.fib_status || "Menunggu 1.618",
       timestamp: Date.now()
     }));
 
-    return NextResponse.json({ success: true, message: "Data sukses disimpan di KV!" });
+    return NextResponse.json({ success: true, message: `Mantap, data MFI ${mfi} kesimpan!` });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
@@ -53,14 +57,13 @@ export async function GET(req: Request) {
   try {
     // @ts-ignore
     const apiKey = process.env.AI_API_KEY || globalThis.AI_API_KEY;
-    if (!apiKey) throw new Error("API Key AI belum dipasang!");
+    if (!apiKey) throw new Error("API Key kosong");
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const kv = getKVNamespace(req);
     
-    // Data default jika gagal atau kosong
     let marketData = {
       pair: "XAU/USD+ (TradFi)",
       timeframe: "M2",
@@ -73,14 +76,6 @@ export async function GET(req: Request) {
       if (rawData) {
         marketData = JSON.parse(rawData);
       }
-    } else {
-      return NextResponse.json({
-        pair: "CONFIG_ERROR",
-        timeframe: "M2",
-        mfi_level: 0,
-        fib_status: "KV_NOT_FOUND",
-        ai_advice: "Binding KV terdeteksi kosong, bro! Cek lagi tab Settings Cloudflare lo."
-      });
     }
 
     const prompt = `
@@ -112,7 +107,7 @@ export async function GET(req: Request) {
       timeframe: "M2",
       mfi_level: 0,
       fib_status: "ERROR",
-      ai_advice: `Konslet nih! Detail Error: ${error.message || error}` 
+      ai_advice: `Konslet: ${error.message}` 
     });
   }
 }
