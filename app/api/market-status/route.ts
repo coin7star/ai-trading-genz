@@ -1,10 +1,6 @@
 import { NextResponse } from 'next/server';
 
 export async function GET() {
-  // Nanti apiKey ini dipakai buat fetch ke OpenAI/Gemini/Anthropic
-  // const apiKey = process.env.AI_API_KEY;
-
-  // Mock data yang sesuai dengan setup rules
   const data = {
     pair: "XAU/USD",
     timeframe: "M2",
