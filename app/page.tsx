@@ -7,31 +7,39 @@ interface MarketData {
   timeframe: string;
   mfi_level: number;
   fib_status: string;
-  atr_value: number; // Data ATR udah masuk
+  atr_value: number;
   ai_advice: string;
 }
 
 export default function Dashboard() {
   const [data, setData] = useState<MarketData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false); // State khusus buat tombol Refresh
 
-  // Fetch data HANYA saat halaman dimuat atau direfresh manual
+  // Fungsi buat narik data dari API
+  const fetchMarketData = async () => {
+    try {
+      const res = await fetch("/api/market-status");
+      const json = await res.json();
+      setData(json);
+    } catch (err) {
+      console.error("Gagal ambil data trading:", err);
+    } finally {
+      setLoading(false);
+      setIsRefreshing(false); // Matiin efek muter di tombol kalau udah kelar
+    }
+  };
+
+  // Narik data otomatis CUMA 1 KALI pas web pertama kali dibuka
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const res = await fetch("/api/market-status");
-        const json = await res.json();
-        setData(json);
-      } catch (err) {
-        console.error("Gagal ambil data trading:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-    // setInterval sengaja dihapus biar AI anteng dan cuma ganti kalau di-refresh manual
+    fetchMarketData();
   }, []);
+
+  // Fungsi yang dipanggil pas tombol Refresh dipencet
+  const handleRefresh = () => {
+    setIsRefreshing(true); // Nyalain efek muter
+    fetchMarketData();
+  };
 
   if (loading) {
     return (
@@ -89,17 +97,17 @@ export default function Dashboard() {
           {/* Box RULES */}
           <div className="flex flex-col items-center justify-center rounded-2xl bg-[#131a30] p-4 text-center">
             <span className="text-xs font-bold tracking-wider text-gray-500">RULES</span>
-            <span className="mt-2 text-xs font-extrabold text-[#ffb300] leading-tight">
-              {data?.fib_status.includes("UPTREND") ? "EMA 9 > 20 (UPTREND)" : 
-               data?.fib_status.includes("DOWNTREND") ? "EMA 9 < 20 (DOWNTREND)" : "KONSOLIDASI"}
+            <span className="mt-2 text-[10px] font-extrabold text-[#ffb300] leading-tight">
+              {data?.fib_status.includes("UPTREND") ? "EMA 9 > 20 (UP)" : 
+               data?.fib_status.includes("DOWNTREND") ? "EMA 9 < 20 (DOWN)" : "KONSOLIDASI"}
             </span>
           </div>
         </div>
 
-        {/* Bubble AI Asisten */}
+        {/* Bubble AI Asisten (Llama 70B) */}
         <div className="relative mt-6 rounded-2xl bg-[#181931] p-5 border border-[#3c3066]/30">
           <span className="absolute -top-3 left-4 rounded-lg bg-[#5352f3] px-3 py-0.5 text-[10px] font-black uppercase tracking-widest text-white shadow-md">
-            AI ASISTEN
+            AI ASISTEN (70B)
           </span>
           <p className="text-sm leading-relaxed text-gray-300 font-medium">
             {data?.ai_advice || "Lagi mantau pergerakan market dulu, tunggu sinyal mantap ya bro..."}
@@ -117,6 +125,23 @@ export default function Dashboard() {
         >
           {isBuy ? "GAS ENTRY BUY! 🚀" : isSell ? "GAS ENTRY SELL! 🔥" : "STAND BY ENTRY! ⏱️"}
         </button>
+
+        {/* ========================================= */}
+        {/* TOMBOL REFRESH MANUAL + KETERANGAN */}
+        {/* ========================================= */}
+        <div className="mt-7 flex flex-col items-center pb-2">
+          <button 
+            onClick={handleRefresh} 
+            disabled={isRefreshing}
+            className="flex items-center justify-center gap-2 rounded-full bg-[#1b223c] px-6 py-3 text-sm font-bold text-gray-200 transition-all hover:bg-[#252e50] active:scale-95 disabled:opacity-50 border border-gray-700/50"
+          >
+            <span className={isRefreshing ? "animate-spin" : ""}>🔄</span>
+            {isRefreshing ? "Narik Data..." : "Refresh Data Manual"}
+          </button>
+          <span className="mt-3 text-center text-[10px] font-medium tracking-wide text-gray-500">
+            *Klik tombol di atas buat narik angka terbaru<br/>& update nasehat AI
+          </span>
+        </div>
 
       </div>
     </div>
