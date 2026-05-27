@@ -19,8 +19,8 @@ export async function GET() {
 
     const genAI = new GoogleGenerativeAI(apiKey);
     
-    // FIX SUPER FINAL: Mesin baru + Model terbaru (Pasti Tembus!)
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // FIX SUPER DUPER FINAL: Pakai model 2026 terbaru yang aktif!
+    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
 
     const marketData = {
       pair: "XAU/USD",
