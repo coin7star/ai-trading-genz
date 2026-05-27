@@ -59,7 +59,7 @@ export async function POST(req: Request) {
           method: "POST",
           headers: { "Authorization": `Bearer ${groqKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "llama-3.1-8b-instant",
+            model: "llama-3.3-70b-versatile", // 🔥 OTAK AI UDAH DI-UPGRADE KE 70B 🔥
             messages: [{ role: "user", content: promptText }],
             temperature: 0.1,
             max_tokens: 80
@@ -125,16 +125,16 @@ export async function GET(req: Request) {
       INGAT: SELALU panggil user dengan sebutan 'bro', 'lu', 'lo', atau 'anaksultan'. JANGAN PERNAH panggil 'kak' atau 'kamu', itu terlalu kaku dan dilarang!
       Data market: Pair ${marketData.pair}, TF ${marketData.timeframe}, MFI level ${marketData.mfi_level}, status trend: ${marketData.fib_status}, ATR: ${marketData.atr_value}. 
       Aturan trading: BUY jika UPTREND & MFI < 30. SELL jika DOWNTREND & MFI > 70. Selain itu Wait and see.
-      Beri saran singkat (maksimal 2 kalimat pendek) pake bahasa tongkrongan santai lo.
+      Beri saran singkat (maksimal 2 kalimat pendek) pake bahasa tongkrongan santai lo. PASTIKAN saranmu SINKRON dengan aturan trading.
     `;
 
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { "Authorization": `Bearer ${groqKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
+        model: "llama-3.3-70b-versatile", // 🔥 OTAK AI UDAH DI-UPGRADE KE 70B 🔥
         messages: [{ role: "user", content: promptText }],
-        temperature: 0.1,
+        temperature: 0.1, // Suhu tetep rendah biar dia disiplin sama rules
         max_tokens: 100
       })
     });
