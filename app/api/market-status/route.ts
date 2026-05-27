@@ -6,7 +6,8 @@ export const dynamic = 'force-dynamic';
 function getKVNamespace(req: Request): any {
   // @ts-ignore
   const context = req.context || req.cloudflare || {};
-  return context.env?.MARKET_DATA || process.env.MARKET_DATA || globalThis.MARKET_DATA;
+  // Fix TypeScript error dengan nge-cast globalThis jadi any
+  return context.env?.MARKET_DATA || process.env.MARKET_DATA || (globalThis as any).MARKET_DATA;
 }
 
 // JALUR 1: POST (Menerima setoran data dari MT5 Laptop)
@@ -45,8 +46,8 @@ export async function POST(req: Request) {
 // JALUR 2: GET (Nampilin data ke layar HP lewat mesin GROQ API)
 export async function GET(req: Request) {
   try {
-    // @ts-ignore
-    const groqKey = process.env.GROQ_API_KEY || globalThis.GROQ_API_KEY;
+    // Fix TypeScript error juga di bagian ini
+    const groqKey = process.env.GROQ_API_KEY || (globalThis as any).GROQ_API_KEY;
     if (!groqKey) throw new Error("API Key GROQ belum dipasang di Cloudflare!");
 
     const kv = getKVNamespace(req);
@@ -78,7 +79,7 @@ export async function GET(req: Request) {
       Beri saran singkat (maksimal 2 kalimat pendek) pake bahasa tongkrongan (bro, gas, fomo, nyangkut, dsb). Jangan kaku.
     `;
 
-    // Tembak langsung ke API resmi Groq via native fetch (Format OpenAI)
+    // Tembak langsung ke API resmi Groq via native fetch
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -86,7 +87,7 @@ export async function GET(req: Request) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "llama-3.1-8b-instant", // Model gratisan Groq yang super kilat
+        model: "llama-3.1-8b-instant",
         messages: [
           { role: "user", content: promptText }
         ],
