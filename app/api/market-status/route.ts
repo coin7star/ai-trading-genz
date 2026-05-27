@@ -3,21 +3,15 @@ import { NextResponse } from 'next/server';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
-function getKVNamespace(req: Request): any {
-  // @ts-ignore
-  const context = req.context || req.cloudflare || {};
-  return context.env?.MARKET_DATA || process.env.MARKET_DATA || (globalThis as any).MARKET_DATA;
-}
-
-// JALUR 1: POST (Dapur utama penerima data MT5)
+// JALUR 1: POST (Dapur utama penerima data MT5 & Pemicu Telegram)
 export async function POST(req: Request) {
   try {
-    const kv = getKVNamespace(req);
-    if (!kv) return NextResponse.json({ success: false, error: "KV Kosong" }, { status: 500 });
-
     const groqKey = process.env.GROQ_API_KEY || (globalThis as any).GROQ_API_KEY;
     const tgToken = process.env.TELEGRAM_BOT_TOKEN || (globalThis as any).TELEGRAM_BOT_TOKEN;
     const tgChatId = process.env.TELEGRAM_CHAT_ID || (globalThis as any).TELEGRAM_CHAT_ID;
+    const firebaseUrl = process.env.FIREBASE_URL || (globalThis as any).FIREBASE_URL;
+
+    if (!firebaseUrl) return NextResponse.json({ success: false, error: "FIREBASE_URL Kosong" }, { status: 500 });
 
     const textData = await req.text();
     let body: any = {};
@@ -28,26 +22,23 @@ export async function POST(req: Request) {
       body = Object.fromEntries(urlParams.entries());
     }
 
-    // Paksa ambil nama pair asli dari MT5 (apapun namanya, mau XAUUSD atau XAUUSD+)
     const pair = body.pair || "XAUUSD+";
     const timeframe = body.timeframe || "M2";
     const mfi = body.mfi_level !== undefined ? Number(body.mfi_level) : 0;
     const status_trend = body.fib_status || "Konsolidasi";
-    
-    // Tangkap nilai ATR berupa float murni
     const atr = body.atr_value !== undefined ? parseFloat(body.atr_value) : 0;
 
-    // 1. Ambil data lama di KV buat anti-spam telegram
-    const rawOldData = await kv.get("latest_xau_m2");
+    // 1. Ambil data lama dari Firebase buat anti-spam telegram
     let oldSignal = "WAIT";
-    if (rawOldData) {
-      try {
-        const oldObj = JSON.parse(rawOldData);
-        oldSignal = oldObj.last_signal || "WAIT";
-      } catch(e){}
-    }
+    try {
+      const oldRes = await fetch(`${firebaseUrl}/latest_xau_m2.json`);
+      if (oldRes.ok) {
+        const oldData = await oldRes.json();
+        if (oldData) oldSignal = oldData.last_signal || "WAIT";
+      }
+    } catch(e){}
 
-    // 2. Rumus Dewa lo
+    // 2. Rumus Dewa
     let currentSignal = "WAIT";
     let signalType = "";
 
@@ -70,7 +61,7 @@ export async function POST(req: Request) {
           body: JSON.stringify({
             model: "llama-3.1-8b-instant",
             messages: [{ role: "user", content: promptText }],
-            temperature: 0.1, // Dikunci biar ga plin plan bahsanya
+            temperature: 0.1,
             max_tokens: 80
           })
         });
@@ -88,16 +79,20 @@ export async function POST(req: Request) {
       } catch (err) {}
     }
 
-    // 4. Simpan ke KV
-    await kv.put("latest_xau_m2", JSON.stringify({
-      pair: pair,
-      timeframe: timeframe,
-      mfi_level: mfi,
-      fib_status: status_trend,
-      atr_value: atr,
-      last_signal: currentSignal,
-      timestamp: Date.now()
-    }));
+    // 4. Simpan/Update data mutakhir langsung ke Firebase
+    await fetch(`${firebaseUrl}/latest_xau_m2.json`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pair: pair,
+        timeframe: timeframe,
+        mfi_level: mfi,
+        fib_status: status_trend,
+        atr_value: atr,
+        last_signal: currentSignal,
+        timestamp: Date.now()
+      })
+    });
 
     return NextResponse.json({ success: true, signal: currentSignal });
   } catch (error: any) {
@@ -105,21 +100,26 @@ export async function POST(req: Request) {
   }
 }
 
-// JALUR 2: GET (Buka lewat Browser Dashboard)
+// JALUR 2: GET (Buka lewat Browser Dashboard HP lo)
 export async function GET(req: Request) {
   try {
     const groqKey = process.env.GROQ_API_KEY || (globalThis as any).GROQ_API_KEY;
-    if (!groqKey) throw new Error("API Key GROQ kosong");
+    const firebaseUrl = process.env.FIREBASE_URL || (globalThis as any).FIREBASE_URL;
 
-    const kv = getKVNamespace(req);
+    if (!groqKey) throw new Error("API Key GROQ kosong");
+    if (!firebaseUrl) throw new Error("URL Firebase kosong");
+
     let marketData = { pair: "XAUUSD+", timeframe: "M2", mfi_level: 0, fib_status: "Konsolidasi", atr_value: 0 };
 
-    if (kv) {
-      const rawData = await kv.get("latest_xau_m2");
-      if (rawData) marketData = JSON.parse(rawData);
-    }
+    // Sedot data terbaru dari Firebase
+    try {
+      const fireRes = await fetch(`${firebaseUrl}/latest_xau_m2.json`);
+      if (fireRes.ok) {
+        const fData = await fireRes.json();
+        if (fData) marketData = fData;
+      }
+    } catch(e){}
 
-    // Temperature diatur ke 0.1 dan dikunci instruksinya biar gak manggil "Kak" lagi
     const promptText = `
       Kamu adalah asisten trading santai bergaya anak muda anak tongkrongan Gen Z Jakarta asli. 
       INGAT: SELALU panggil user dengan sebutan 'bro', 'lu', 'lo', atau 'anaksultan'. JANGAN PERNAH panggil 'kak' atau 'kamu', itu terlalu kaku dan dilarang!
@@ -134,7 +134,7 @@ export async function GET(req: Request) {
       body: JSON.stringify({
         model: "llama-3.1-8b-instant",
         messages: [{ role: "user", content: promptText }],
-        temperature: 0.1, // Kunci respon biar gak berubah-ubah karakternya
+        temperature: 0.1,
         max_tokens: 100
       })
     });
