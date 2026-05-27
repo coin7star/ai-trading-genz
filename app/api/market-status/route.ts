@@ -4,76 +4,34 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
-async function getBybitData() {
-  // FIX SYMBOL TRADFI: Menggunakan XAUUSD%2B (URL Encoded dari XAUUSD+) dan interval 3 (M3)
-  const response = await fetch(
-    "https://api.bybit.com/v5/market/kline?category=linear&symbol=XAUUSD%2B&interval=3&limit=25",
-    {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Content-Type": "application/json"
-      },
-      next: { revalidate: 0 }
-    }
-  );
-  
-  if (!response.ok) {
-    throw new Error(`Server Bybit nolak request! Status: ${response.status}`);
-  }
-  
-  const data = await response.json();
-  if (!data.result || !data.result.list || data.result.list.length === 0) {
-    throw new Error("Data kline dari Bybit kosong, Bro! Coba cek simbol atau kategorinya.");
-  }
-  
-  return data.result.list;
-}
-
-function calculateMFI(candles: any[]) {
+// JALUR 1: POST (Nerima setoran data dari script MT5 di laptop/VPS lo)
+export async function POST(req: Request) {
   try {
-    let positiveFlow = 0;
-    let negativeFlow = 0;
-    const maxLoop = Math.min(14, candles.length - 1);
+    const body = await req.json();
+    
+    // Panggil gudang KV Cloudflare yang udah di-binding kemarin
+    // @ts-ignore
+    const kv = process.env.MARKET_DATA || globalThis.MARKET_DATA;
+    if (!kv) throw new Error("Gudang KV MARKET_DATA belum tersambung!");
 
-    for (let i = 0; i < maxLoop; i++) {
-      const c = candles[i];
-      const nextC = candles[i + 1];
-      
-      if (!c || !nextC) continue;
+    // Simpan data dari MT5 ke gudang dengan key 'latest_xau_m2'
+    await kv.put("latest_xau_m2", JSON.stringify({
+      pair: body.pair || "XAU/USD",
+      timeframe: body.timeframe || "M2",
+      mfi_level: body.mfi_level || 0,
+      fib_status: body.fib_status || "Waiting 1.618",
+      timestamp: Date.now()
+    }));
 
-      const high = parseFloat(c[2]);
-      const low = parseFloat(c[3]);
-      const close = parseFloat(c[4]);
-      const vol = parseFloat(c[5]);
-      
-      const typicalPrice = (high + low + close) / 3;
-      const moneyFlow = typicalPrice * vol;
-
-      const nextHigh = parseFloat(nextC[2]);
-      const nextLow = parseFloat(nextC[3]);
-      const nextClose = parseFloat(nextC[4]);
-      const nextTypicalPrice = (nextHigh + nextLow + nextClose) / 3;
-
-      if (typicalPrice > nextTypicalPrice) {
-        positiveFlow += moneyFlow;
-      } else {
-        negativeFlow += moneyFlow;
-      }
-    }
-
-    if (negativeFlow === 0) return 50;
-    const mfr = positiveFlow / negativeFlow;
-    return Math.round(100 - (100 / (1 + mfr)));
-  } catch (err) {
-    return 55;
+    return NextResponse.json({ success: true, message: "Data sukses disetor ke Gudang KV!" });
+  } catch (error: any) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
+// JALUR 2: GET (Nampilin data ke layar HP pas lo buka web + panggil Gemini AI)
 export async function GET() {
   try {
-    const candles = await getBybitData();
-    const mfi = calculateMFI(candles);
-
     // @ts-ignore
     const apiKey = process.env.AI_API_KEY || globalThis.AI_API_KEY;
     if (!apiKey) throw new Error("API Key AI belum dipasang di Cloudflare!");
@@ -81,31 +39,55 @@ export async function GET() {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
 
+    // Panggil gudang KV
+    // @ts-ignore
+    const kv = process.env.MARKET_DATA || globalThis.MARKET_DATA;
+    
+    // Set data template awal sebelum MT5 ngirim setoran pertama
+    let marketData = {
+      pair: "XAU/USD",
+      timeframe: "M2",
+      mfi_level: 0,
+      fib_status: "Menunggu Data MT5..."
+    };
+
+    if (kv) {
+      const rawData = await kv.get("latest_xau_m2");
+      if (rawData) {
+        marketData = JSON.parse(rawData);
+      }
+    }
+
     const prompt = `
-      Data market XAUUSD+ Bybit M3: MFI di level ${mfi}. 
-      Analisa apakah layak entry buy/sell dengan rules: MFI < 30 (Oversold), MFI > 70 (Overbought).
-      Beri saran santai gaya Gen Z. Maksimal 2 kalimat. Jangan kaku.
+      Kamu adalah asisten trading santai bergaya anak muda Gen Z. 
+      Data market saat ini: Pair ${marketData.pair}, Timeframe ${marketData.timeframe}, MFI di level ${marketData.mfi_level}, status Fibonacci ${marketData.fib_status}. 
+      
+      Aturan trading user: 
+      1. Jangan entry sebelum harga menyentuh area 1.618.
+      2. MFI di bawah 30 adalah Oversold (siap buy), di atas 70 adalah Overbought (siap sell).
+      
+      Beri tahu user secara singkat apakah boleh entry atau harus sabar. 
+      Gunakan bahasa tongkrongan Jakarta (bro, gas, fomo, nyangkut, dsb). Maksimal 2 kalimat pendek. Jangan kaku.
     `;
 
     const result = await model.generateContent(prompt);
     const ai_advice = (await result.response).text();
 
     return NextResponse.json({
-      pair: "XAU/USD+ (TradFi)",
-      timeframe: "M3",
-      mfi_level: mfi,
-      fib_status: "Live Bybit API",
+      pair: marketData.pair,
+      timeframe: marketData.timeframe,
+      mfi_level: marketData.mfi_level,
+      fib_status: marketData.fib_status,
       ai_advice: ai_advice
     });
 
   } catch (error: any) {
-    console.error("Error log:", error.message);
     return NextResponse.json({ 
-      pair: "XAU/USD+ (TradFi)",
-      timeframe: "M3",
+      pair: "XAU/USD",
+      timeframe: "M2",
       mfi_level: 0,
-      fib_status: "API ERROR",
-      ai_advice: `Gagal narik data TradFi Bybit. Detail: ${error.message || error}`
+      fib_status: "ERROR",
+      ai_advice: `Konslet nih! Detail Error: ${error.message || error}` 
     });
   }
 }
