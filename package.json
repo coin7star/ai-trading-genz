@@ -1,26 +1,19 @@
 {
-  "name": "ai-trading-genz",
-  "version": "0.1.0",
-  "private": true,
+  "name": "xau-ai-signal-telegram-web-ob-sync",
+  "version": "2.8.0",
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
-    "next": "14.0.3",
-    "react": "^18",
-    "react-dom": "^18"
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "lucide-react": "latest",
+    "lightweight-charts": "4.2.3"
   },
-  "devDependencies": {
-    "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
-    "autoprefixer": "^10.0.1",
-    "postcss": "^8",
-    "tailwindcss": "^3.3.0",
-    "typescript": "^5"
-  }
+  "devDependencies": {}
 }
